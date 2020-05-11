@@ -1,0 +1,216 @@
+#gff转bed文件
+cat /media/shaoqi
+zhu/work/ChipSeq/Annotation/TAIR10_GFF3_genes_transposons.gff | grep transposable_element_gene | cut -f1,4,5,9 |cut -c4-|cut -f1 -d";"| awk '{print $1, $2, $3, $4}' | sed -e 's/ /\t/g' | sed -e 's/\"//g' > TAIR_TEG.bed
+
+#CPU内存状况
+gnome-system-monitor
+
+#Cellranger 比对单细胞序列
+export PATH=/media/shaoqi-zhu/work/Heart/reference/cellranger-3.0.2:$PATH
+cellranger count --id=heart --fastq=/media/shaoqi-zhu/work/Heart/ --transcriptome=/media/shaoqi-zhu/work/Heart/reference/refdata/ --sample=Undetermined,heart1,heart2,heart3,heart4
+
+#设置环境变量
+export PATH=$PATH:/Users/zsq/samtools
+export PATH=$PATH:/Users/zsq/sratoolkit/bin
+export PATH=$PATH:/Users/zsq/hisat2
+永久添加环境变量：vi  ~/.bash_profile  esc 输入:wq 退出
+
+#终止进程
+ps -ef
+kill -s 9 1827
+#批量删除
+rm test-{1..20}.txt
+#查看nohup.out日志
+tail -50 nohup.out
+
+# tar unzip
+tar -xzvf mm10_library.tar.gz
+
+#DogFinder
+export PATH=$PATH:~/package/bin
+nohup Pre_Process -Q 1 -bam SRR3666751_sorted.bam -ref ~/ref/mm9_loci_annotation.bed &
+for i in {SSR3666751,SSR3666755,SSR5558714,SSR5558720}; do nohup Get_DoGs -out ~/rt -bam ${i}_sorted.sorted_PE.bam -suff ${i} -a ~/ref/mm10_loci_annotation.bed & done
+
+# sra preparation
+prefetch *sra
+
+fastq-dump --gzip --split-3 -A SRR366675${i}.sra &
+
+# Trimming and alignment
+
+for i in *gz; do fastqc -o ~/hdac1/fastq $i & done 
+
+for i in {}; do trim_galore --hardtrim3 140 --length 30 --cores 2 --paired ${i}_R1.fq.gz ${i}_R2.fq.gz --gzip -o ~/chipseq/trim2 & done
+
+trim_galore --stringency 3 --length 30 --paired ${i}_R1.fastq.gz ${i}_R2.fastq.gz --gzip -o ~/chipseq/trim
+
+bowtie2 --mm -p 8 --no-unal --no-mixed --non-deterministic --no-discordant -x ~/ncbi/public/index/bowtie2index/mm10 -1 ${i}_R1.fq.gz -2 ${i}_R2.fq.gz -S ~/chipseq/trim/${i}_trimmed.sam & done
+
+#!/bin/bash
+
+for i in {na_1,na_2,WT_D0_1,WT_D0_2,WT_D1_1,WT_D1_2,dKO_D0_1,dKO_D0_2,dKO_D1_1,dKO_D1_2,dKmyc_D0_1,dKmyc_D0_2,dKmyc_D1_1,dKmyc_D1_2}; 
+do nohup bowtie2 --mm -p 1 --no-unal --no-mixed --non-deterministic --no-discordant -x ~/ncbi/public/index/bowtie2index/mm10 -1 ~/hdac/trim_adaptor/${i}_R1.110bp_5prime.101bp_3prime_val_1.fq.gz -2 ~/hdac/trim_adaptor/${i}_R2.110bp_5prime.101bp_3prime_val_2.fq.gz -S ${i}.sam & done
+
+wait
+
+for i in {na_1,na_2,WT_D0_1,WT_D0_2,WT_D1_1,WT_D1_2,dKO_D0_1,dKO_D0_2,dKO_D1_1,dKO_D1_2,dKmyc_D0_1,dKmyc_D0_2,dKmyc_D1_1,dKmyc_D1_2}; 
+do nohup samtools view -h -q 10 -b -f 2 -F 4 -F 8 -F 256 -F 512 -F 2048 ${i}.sam > ${i}.bam & done
+
+wait
+
+for i in {na_1,na_2,WT_D0_1,WT_D0_2,WT_D1_1,WT_D1_2,dKO_D0_1,dKO_D0_2,dKO_D1_1,dKO_D1_2,dKmyc_D0_1,dKmyc_D0_2,dKmyc_D1_1,dKmyc_D1_2}; 
+do nohup samtools sort ${i}.bam -o ${i}_sorted.bam & done
+
+wait
+
+for i in {na_1,na_2,WT_D0_1,WT_D0_2,WT_D1_1,WT_D1_2,dKO_D0_1,dKO_D0_2,dKO_D1_1,dKO_D1_2,dKmyc_D0_1,dKmyc_D0_2,dKmyc_D1_1,dKmyc_D1_2}; 
+do nohup samtools index ${i}_sorted.bam & done
+
+wait
+
+for i in {na_1,na_2,WT_D0_1,WT_D0_2,WT_D1_1,WT_D1_2,dKO_D0_1,dKO_D0_2,dKO_D1_1,dKO_D1_2,dKmyc_D0_1,dKmyc_D0_2,dKmyc_D1_1,dKmyc_D1_2}; 
+do nohup java -jar ~/package/picard.jar MarkDuplicates I=${i}_sorted.bam O=${i}_sorted_rmdup.bam ASSUME_SORTED=TRUE M=${i}_marked_dup_metrics.txt REMOVE_DUPLICATES=true CREATE_INDEX=true QUIET=true & done
+
+# 序列比对
+prefetch
+for i in {1,2,3,4,5}; do nohup fastq-dump --gzip --split-3 -A SRR366675${i}.sra & done 
+hisat2 -t -mm -p 10 -x ~/ncbi/public/index/mm9/mm9 -1 SRR366675${i}.sra_1.fastq.gz -2 SRR366675${i}.sra_2.fastq.gz -S SRR366675${i}.sam & done
+hisat2 -t -mm -p 10 -x ~/ncbi/public/index/hisat2index/grch38/genome -U SRR2033047.sra.fastq.gz -S SRR2033047.sam &
+
+samtools view -h -q 10 -b -f 2 -F 4 -F 8 -F 256 -F 512 -F 2048 ${i}_trimmed.sam > ${i}_trimmed.bam & done
+samtools view -@ 10 -b -h -q 10 SRR2033047_grch38.sam > SRR2033047_grch38.bam
+samtools sort ${i}_trimmed.bam -o ${i}_sorted.bam & done
+samtools index ${i}_sorted.bam & done
+
+# deeptools bamCoverage and computMatrix
+bamCoverage -b ${i}_sorted_rmdup.bam --binSize 30 --smoothLength 100 --normalizeUsing RPKM -p 10 -o ${i}.bw & done
+
+computeMatrix reference-point --referencePoint TSS -b 1000 -a 1000 -S WT_D1_1_combined_PE_less_than_150_sorted.bw WT_D1_1_combined_PE_more_than_150_sorted.bw -R ~/gencode_mm10.bed --skipZeros -o WT_D0_1.mat.gz
+
+plotProfile -m WT_D0_1.mat.gz -out WT_D0_1.png
+
+# bam to bedpe
+bedtools bamtobed -i ${i}_sorted_byname.bam -bedpe -mate1 2>/dev/null | awk '{if ($2<$5) $11=$2; else $11=$5; if ($3>$6) $12=$3; else $12=$6; print $1"\t"$11"\t"$12"\t"$9}'
+
+# merge peaks
+for i in {}; do macs2 callpeak -t ${i}_pe.bed -f BED -g mm -n ${i} -B -q 0.1 --SPMR --outdir ~/hdac/macs2/ & done
+
+cat *Peak | sort -k1,1 -k2,2n | bedtools merge -i stdin | awk 'BEGIN{OFS="\t"} $0=$0"\t"NR' > merged.bed
+
+for i in {}; do bedtools coverage -a merged.bed -b ${i}_pe.bed > ${i}_coverage.bed; done
+
+for i in *coverage.bed; do cat ${i} | cut -f5 > ${i}.coverage;done
+
+paste <(cat WT_D1_1_coverage.bed | cut -f7) *coverage > coverage.bed
+
+
+#Picard deduplication
+java -jar ~/package/picard.jar MarkDuplicates I=${i}_sorted.bam O=${i}_sorted_rmdup.bam ASSUME_SORTED=TRUE M=${i}_marked_dup_metrics.txt REMOVE_DUPLICATES=true CREATE_INDEX=true QUIET=true & done
+
+# macs2 callpeak bdgTobw bedToBigBed
+macs2 callpeak -t ${i}_sorted_rmdup.bam -f BAMPE -g mm -n ${i} -B -q 0.1 --SPMR --outdir ~/macs2
+
+for i in {dko_24h_1,wt_24h_1}; do ./bdg2bw.sh /media/shaoqizhu/easystore/Stat5/bw_norm/${i}_treat_pileup.bdg mm9.genome; done
+
+for i in *bed; do bedToBigBed ${i} ../mm9.genome $(cut -d'.' -f1<<<$i).bb;done
+
+#Homer motif analysis
+for i in *bed; do findMotifsGenome.pl $i mm10 /media/shaoqizhu/easystore/hdac/homer/$(cut -d'.' -f 1 <<<$i) -size 300 -mask & done
+
+cat chipseq_summits.bed | awk 'BEGIN{OFS="\t"} {$2=$2-149}{$3=$3+149} {print $0}' > chipseq.bed
+
+
+# genome track
+https://hdac.s3.amazonaws.com/na_1.bw	
+
+track type=bigWig name="DP_ko1"  maxHeightPixels 100:50:30 description="A bigWig file" bigDataUrl=https://lsd1-rna.s3.amazonaws.com/DP_ko1.bw
+
+# RNAseq htseq-count
+infer_experiment.py -r ../Annotation/mm10_UCSC_knownGene.bed -i neg_1.bam
+
+htseq-count -f bam -r name -s yes -a 10 -t exon -i gene_id -m intersection-nonempty ${i}_name.bam /media/shaoqizhu/easystore/LSD1/mm10_2015.gtf > ${i}_counts.txt
+
+
+
+
+# 查看某个染色体
+samtools view -b CD4_ATAC_rmdup.bam chrM > CD4_ATAC_rmdup_mitochondria.bam
+
+Find integenic region
+gzcat Mus_musculus.GRCm38.97.gtf.gz | grep -v '^#' | awk '$3="gene" {print $1,$4,$5,$14}' | grep -v ENSMUST | sed 's/\"//g' | sed 's/\;//g' | grep -v Gm | wc -l
+
+gzcat gencode.vM22.annotation.gtf.gz | awk 'BEGIN{OFS="\t";} $3=="gene" {print $1,$4,$5,$12,$14}' | sed 's/\"//g' | sed 's/\;//g' | grep protein_coding | gzip > gencode_gene.bed.gz
+bedtools sort -i gencode_gene.bed.gz -g mouse.mm10.genome | bedtools complement -i stdin -g mouse.mm10.genome | gzip > gencode_intergenic.bed.gz
+
+bedtools makewindows -b gencode_intergenic_sorted.bed -w 100 -i srcwinnum | sed 's/\"//g' | awk -F '.' '{print $1"\t"$2}' | awk '{print $1"\t"$2"\t"$3"\t"$5"\t"$4}' | gzip > intergenic_windows_order.bed.gz
+
+bedtools sort -i intergenic_windows_order.bed.gz -g mouse.mm10.genome | gzip > intergenic_windows_sorted.bed.gz
+
+bedtools coverage -sorted -g mouse.mm10.genome -a intergenic_windows_sorted.bed.gz -b KCl_sorted.bam | gzip > intergenic_KCl.bed.coverage.gz
+
+gzcat intergenic_KCl.bed.coverage.gz | cut -f4,6 > reads_count.bed.coverage
+
+
+# 行首或行末添加字符
+sed 's/^/chr&/g' sed 's/$/&TAIL/g'
+
+gzcat KCl_sorted.bed.gz | grep '\-$' | bedtools coverage -a intergenic_windows_Tnp2.bed.gz -b stdin
+
+samtools sort -n -@ 8 KCl_sorted.bam > KCl_sorted_byname.bam
+
+bedtools bamtobed -i KCl_sorted_byname.bam -bedpe | gzip > KCl_sortcollapseed_pe.bed.gz
+for i in {na_1,na_2,WT_D0_1,WT_D0_2,WT_D1_1,WT_D1_2,dKO_D0_1,dKO_D0_2,dKO_D1_1,dKO_D1_2,dKmyc_D0_1,dKmyc_D0_2,dKmyc_D    1_1,dKmyc_D1_2};
+
+paste <(gzcat KCl_sorted_pe.bed.gz | cut -f1,2,6) <(gzcat KCL_sorted_r1.bed.gz) | gzip > KCl_sorted_pe_strand_test.bed.gz
+
+#sort by the 9th column numerically by reverse order
+sort -k 9nr chipseq_no_cutrun.bed
+
+
+gzcat GCF_000001405.39_GRCh38.p13_genomic.gff.gz | grep -v "^#" | grep NC_ | grep ID=gene | cut -f1 -d ";" | sed 's/ID=gene-//g' | cut -f1,4,5,7,9 > gene.bed
+
+
+link=$(cat assembly_summary_refseq.txt | grep 'Mus musculus' | grep Chromosome | grep Patch | cut -f20)
+file=$(echo $link | rev | cut -d'/' -f1 | rev)
+wget $link/$file"_genomic.gtf.gz"
+
+#bedpe file transformation
+
+bedtools bamtobed -mate1 -i H2O2-2_sorted_byname.bam -bedpe > H2O2-2_sorted_byname_pair.bed 2>/dev/null
+
+cat H2O2-2_sorted_byname_pair.bed | head | awk '{if ($9=="+") print $1"\t"$2"\t"$6"\t"$9; else print $1"\t"$5"\t"$3"\t"$9}'
+
+cat H2O2-2_sorted_byname_pair.bed | awk '{if ($2>$5) $11=$5; else $11=$2; if ($3>$6) $12=$3; else $12=$6; print $11"\t"$12}' > H2O2-2_sorted_pe.bed
+
+gzcat GCF_000001405.39_GRCh38.p13_genomic.gff.gz | grep 'sequence-region NC' | awk '{print $2"\t"$4}' > grch38.genome
+
+
+for i in *bed; do cat ${i} | awk 'BEGIN{OFS="\t"} {if ($2>10000) $2=$2-10000; else $2=0}{$3=$3+10000} {print $0}' | bedtools intersect -wb -a stdin -b /media/shaoqizhu/easystore/hdac/geneAnno.bed | cut -f1,2,3,4,5,10 > $(cut -d'.' -f 1 <<<${i})_gene.bed; done
+
+
+curl: sudo apt-get install curl
+libssl-dev: sudo apt-get install libssl-dev
+libcurl: sudo apt-get install libcurl4-openssl-dev
+xml2: sudo apt-get install libxml2-dev
+
+cat geneAnno.bed | awk 'BEGIN{OFS="\t"} {if ($2>50000) $2=$2-50000; else $2=0} {$3=$3+50000} {print$0}'| bedtools intersect -wao -a merged.bed -b stdin | bedtools  merge -c 10 -o collapse > merge_gene.bed
+
+for i in *-*;do cat $i | awk '$5<0 {print$1"\t"$2"\t"$3"\t"$4}' > more_than/$(sed 's/-/-more-than-/g' <<<$i);done
+
+for i in *-*;do cat $i | awk '$5>0 {print$1"\t"$2"\t"$3"\t"$4}' > less_than/$(sed 's/-/-less-than-/g' <<<$i);done
+
+for i in *bed; do cat $i | awk 'BEGIN{OFS="\t"} $3-$2<=150 {print$1"\t"$2"\t"$3"\t"$2"\t"$3"\t"$4}' > $(cut -d'.' -f1 <<<$i)_cut_150.bed & done
+
+
+for i in {na_1,na_2,WT_D0_1,WT_D0_2,WT_D1_1,WT_D1_2,dKO_D0_1,dKO_D0_2,dKO_D1_1,dKO_D1_2}; do macs2 callpeak -t bamtobed/bampe/${i}_combined_PE_cut_150.bed -f BED -g mm -n ${i} -B -q 0.1 --outdir ~/hdac/macs2_cut_150/ & done
+
+
+cat gencode_mm9.bed | awk 'BEGIN{OFS="\t"} {if($2<50000) $2=0; else $2=$2-50000} {$3=$3+50000} {print $0}' > gencode_mm9_50kb.bed
+
+
+
+for i in *txt; do cat ${i} | cut -f2 > $(cut -d'.' -f1 <<<$i)_num.txt;done
+
+paste <(cat DP_ko1_counts.txt | cut -f1)  *num.txt > counts.txt
+
+
